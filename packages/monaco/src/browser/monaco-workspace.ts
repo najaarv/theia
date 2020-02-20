@@ -21,7 +21,7 @@ import { injectable, inject, postConstruct } from 'inversify';
 import { ProtocolToMonacoConverter, MonacoToProtocolConverter, testGlob } from 'monaco-languageclient';
 import URI from '@theia/core/lib/common/uri';
 import { DisposableCollection } from '@theia/core/lib/common';
-import { FileSystem, } from '@theia/filesystem/lib/common';
+import { FileSystem, FileStat, } from '@theia/filesystem/lib/common';
 import { FileChangeType, FileSystemWatcher } from '@theia/filesystem/lib/browser';
 import { WorkspaceService } from '@theia/workspace/lib/browser';
 import { EditorManager, EditorOpenerOptions } from '@theia/editor/lib/browser';
@@ -33,6 +33,7 @@ import { MonacoEditor } from './monaco-editor';
 import { MonacoConfigurations } from './monaco-configurations';
 import { ProblemManager } from '@theia/markers/lib/browser';
 import { MaybePromise } from '@theia/core/lib/common/types';
+import { WorkspaceFolder, WorkspaceFoldersChangeEvent } from 'vscode';
 
 export interface MonacoDidChangeTextDocumentParams extends lang.DidChangeTextDocumentParams {
     readonly textDocument: MonacoEditorModel;
@@ -148,6 +149,9 @@ export class MonacoWorkspace implements lang.Workspace {
     protected readonly onDidSaveTextDocumentEmitter = new Emitter<MonacoEditorModel>();
     readonly onDidSaveTextDocument = this.onDidSaveTextDocumentEmitter.event;
 
+    protected readonly onDidChangeWorkspaceFoldersEmitter = new Emitter<WorkspaceFoldersChangeEvent>();
+    readonly onDidChangeWorkspaceFolders = this.onDidChangeWorkspaceFoldersEmitter.event;
+
     @inject(FileSystem)
     protected readonly fileSystem: FileSystem;
 
@@ -175,14 +179,20 @@ export class MonacoWorkspace implements lang.Workspace {
     @inject(ProblemManager)
     protected readonly problems: ProblemManager;
 
+    protected _workspaceFolders: WorkspaceFolder[];
+    get workspaceFolders(): WorkspaceFolder[] {
+        return this._workspaceFolders;
+    }
+
     @postConstruct()
-    protected init(): void {
-        this.workspaceService.roots.then(roots => {
-            const rootStat = roots[0];
-            if (rootStat) {
-                this._rootUri = rootStat.uri;
-                this.resolveReady();
-            }
+    protected async init(): Promise<void> {
+        await this.workspaceService.roots.then(roots => {
+            this.updateWorkspaceFolders(roots);
+            this.resolveReady();
+        });
+
+        this.workspaceService.onWorkspaceChanged(async newRootDirs => {
+            this.updateWorkspaceFolders(newRootDirs);
         });
 
         for (const model of this.textModelService.models) {
@@ -191,13 +201,29 @@ export class MonacoWorkspace implements lang.Workspace {
         this.textModelService.onDidCreate(model => this.fireDidOpen(model));
     }
 
-    protected _rootUri: string | null = null;
+    protected updateWorkspaceFolders(newRootDirs: FileStat[]): void {
+        const oldWorkspaceUris = this.workspaceFolders.map(folder => folder.uri.toString());
+        const newWorkspaceUris = newRootDirs.map(folder => folder.uri);
+        const added = newWorkspaceUris.filter(uri => oldWorkspaceUris.indexOf(uri) < 0).map((dir, index) => this.toWorkspaceFolder(dir, index));
+        const removed = oldWorkspaceUris.filter(uri => newWorkspaceUris.indexOf(uri) < 0).map((dir, index) => this.toWorkspaceFolder(dir, index));
+        this._workspaceFolders = newWorkspaceUris.map(this.toWorkspaceFolder);
+        this.onDidChangeWorkspaceFoldersEmitter.fire({ added, removed });
+    }
+
+    protected toWorkspaceFolder(uriString: string, index: number): WorkspaceFolder {
+        return {
+            uri: Uri.parse(uriString),
+            name: uriString.substring(uriString.lastIndexOf('/')) || uriString,
+            index
+        };
+    }
+
     get rootUri(): string | null {
-        return this._rootUri;
+        return this._workspaceFolders[0] && this._workspaceFolders[0].uri.toString();
     }
 
     get rootPath(): string | null {
-        return this._rootUri && new URI(this._rootUri).path.toString();
+        return this._workspaceFolders[0] && new URI(this._workspaceFolders[0].uri).path.toString();
     }
 
     get textDocuments(): MonacoEditorModel[] {

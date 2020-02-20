@@ -1448,6 +1448,11 @@
   dependencies:
     "@types/node" "*"
 
+"@types/vscode@1.33.0":
+  version "1.33.0"
+  resolved "https://registry.yarnpkg.com/@types/vscode/-/vscode-1.33.0.tgz#da400abcb4caaeea18fd37287a3f48b18c785c94"
+  integrity sha512-JSmGiValbrcG5g20jjCfKakLiuWyrcjVezj+SEAEZ4klXQktE5EtowuGlkLVqbkiBK4iY5wy/4yW8OjecuHnjQ==
+
 "@types/webpack-sources@*":
   version "0.1.5"
   resolved "https://registry.yarnpkg.com/@types/webpack-sources/-/webpack-sources-0.1.5.tgz#be47c10f783d3d6efe1471ff7f042611bd464a92"
